@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>RabbitMQ Password Hash</title>
+    <meta http-equiv="x-ua-compatible" content="ie=edge" />
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" />
+</head>
+
+<body>
+    This page generates a password hash for use in RabbitMQ's definitions.json file.
+    <script>
+        // Byte conversions by artjomb
+        // https://gist.github.com/artjomb/7ef1ee574a411ba0dd1933c1ef4690d1
+        function byteArrayToWordArray(ba) {
+            var wa = [], i;
+            for (i = 0; i < ba.length; i++) {
+                wa[(i / 4) | 0] |= ba[i] << (24 - 8 * i);
+            }
+            return CryptoJS.lib.WordArray.create(wa, ba.length);
+        }
+
+        function wordToByteArray(word, length) {
+            var ba = [], i, xFF = 0xFF;
+            if (length > 0)
+                ba.push(word >>> 24);
+            if (length > 1)
+                ba.push((word >>> 16) & xFF);
+            if (length > 2)
+                ba.push((word >>> 8) & xFF);
+            if (length > 3)
+                ba.push(word & xFF);
+            return ba;
+        }
+
+        function wordArrayToByteArray(wordArray, length) {
+            if (wordArray.hasOwnProperty("sigBytes") && wordArray.hasOwnProperty("words")) {
+                length = wordArray.sigBytes;
+                wordArray = wordArray.words;
+            }
+
+            var result = [],
+                bytes,
+                i = 0;
+            while (length > 0) {
+                bytes = wordToByteArray(wordArray[i], Math.min(4, length));
+                length -= bytes.length;
+                result.push(bytes);
+                i++;
+            }
+            return [].concat.apply([], result);
+        }
+
+        function hash(plaintext) {
+            // Algorithm as defined here:
+            // https://lists.rabbitmq.com/pipermail/rabbitmq-discuss/2011-May/012765.html
+            var salt = window.crypto.getRandomValues(new Uint8Array(4));
+            var plaintext_encoded = new TextEncoder("utf-8").encode(plaintext);
+
+            // This is ugly but it works 🤷‍♂️
+            var combined = [].concat.apply([], salt);
+            combined = combined.concat.apply(combined, plaintext_encoded);
+            combined = byteArrayToWordArray(new Uint8Array(combined));
+            hashed = wordArrayToByteArray(CryptoJS.SHA256(combined));
+            combined = [].concat.apply([], salt);
+            combined = combined.concat.apply(combined, hashed);
+
+            return btoa(String.fromCharCode.apply(null, new Uint8Array(combined)));
+        }
+
+
+        var example = {
+            "rabbit_version": "3.8.5",
+            "users": [
+                {
+                    "name": "username",
+                    "password_hash": "",
+                    "hashing_algorithm": "rabbit_password_hashing_sha256",
+                    "tags": "administrator"
+                },
+            ],
+            "vhosts": [
+            ],
+            "permissions": [
+                {
+                    "user": "username",
+                    "vhost": "\/",
+                    "configure": ".*",
+                    "write": ".*",
+                    "read": ".*"
+                }
+            ],
+            "parameters": [],
+            "policies": [],
+            "queues": [],
+            "exchanges": [],
+            "bindings": []
+        };
+
+        function update_hash(password) {
+            var hashed_password = '';
+            if (password.length > 0) {
+                hashed_password = hash(password);
+            }
+            document.getElementById("password_hash").value = hashed_password;
+            example['users'][0]['password_hash'] = hashed_password;
+            document.getElementById("example_file").value = JSON.stringify(example, null, 4);
+        }
+    </script>
+
+    <form>
+        Password: <input type="text" oninput="update_hash(this.value)" name="password" size="64" />
+        <br>
+        Result: <input id="password_hash" size="64" readonly />
+        <br>
+        Example definitions.json: <br>
+        <textarea id="example_file" cols="80" rows="32" readonly></textarea>
+    </form>
+</body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.0.0/crypto-js.min.js"
+    integrity="sha512-nOQuvD9nKirvxDdvQ9OMqe2dgapbPB7vYAMrzJihw5m+aNcf0dX53m6YxM4LgA9u8e9eg9QX+/+mPu8kCNpV2A=="
+    crossorigin="anonymous"></script>
+<script>document.getElementById("example_file").value = JSON.stringify(example, null, 4);</script>
+
+</html>
